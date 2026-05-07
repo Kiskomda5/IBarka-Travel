@@ -1,0 +1,134 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(userPath) ? get(userPath).data : null;
+    }
+
+    function hasRole(role) {
+      let data = getUserData();
+      let email = request.auth.token.email;
+      return isSignedIn() && (
+        (data != null && data.role == role) ||
+        (role == 'admin' && email == 'kiskomda@gmail.com')
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. User Rules
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+               data.phone is string && (data.phone == '' || (data.phone.size() >= 8 && data.phone.size() <= 20)) &&
+               data.role in ['passenger', 'agent', 'admin'] &&
+               (!('matricule' in data) || (data.matricule is string && data.matricule.size() <= 50)) &&
+               (data.createdAt != null);
+      }
+
+      allow get: if isOwner(userId) || hasRole('admin');
+      allow create: if isOwner(userId) && isValidUser(incoming()) && incoming().role == 'passenger';
+      allow update: if isOwner(userId) && isValidUser(incoming()) && 
+                    (!('matricule' in incoming()) || incoming().matricule == existing().matricule || hasRole('admin') || isOwner(userId)) &&
+                    (incoming().diff(existing()).affectedKeys().hasAny(['name', 'phone', 'role', 'matricule']));
+    }
+
+    // 2. Company Rules
+    match /companies/{companyId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin');
+    }
+
+    // 3. Bus Rules
+    match /buses/{busId} {
+      allow read: if isSignedIn();
+      allow write: if (hasRole('admin') || hasRole('agent')) && isValidId(busId);
+    }
+
+    // 4. Trip Rules
+    match /trips/{tripId} {
+      function isValidTrip(data) {
+        return data.companyId is string && data.busId is string &&
+               data.from is string && data.to is string &&
+               data.price is number && data.price >= 0 &&
+               data.status in ['scheduled', 'on_route', 'completed', 'cancelled'] &&
+               data.availableSeats is number &&
+               data.availableSeats >= 0;
+      }
+
+      allow list: if isSignedIn();
+      allow get: if isSignedIn() && isValidId(tripId);
+      allow create: if (hasRole('admin') || hasRole('agent')) && isValidTrip(incoming()) && isValidId(tripId);
+      allow update: if (hasRole('admin') || hasRole('agent')) && isValidTrip(incoming());
+    }
+
+    // 5. Ticket Rules
+    match /tickets/{ticketId} {
+      function isValidTicket(data) {
+        return data.userId == request.auth.uid &&
+               data.tripId is string &&
+               data.status in ['paid', 'used', 'cancelled'] &&
+               data.price is number && data.price >= 0 &&
+               data.createdAt == request.time;
+      }
+
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if (isSignedIn() && (isOwner(resource.data.userId) || hasRole('agent') || hasRole('admin'))) && isValidId(ticketId);
+      
+      allow create: if isSignedIn() && isValidTicket(incoming()) && 
+                    exists(/databases/$(database)/documents/trips/$(incoming().tripId)) &&
+                    isValidId(ticketId);
+      
+      allow update: if (isOwner(resource.data.userId) || hasRole('agent')) && (
+        // Action: Cancel (Owner or Agent)
+        (incoming().status == 'cancelled' && incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+        // Action: Validate (Agent only)
+        (hasRole('agent') && incoming().status == 'used' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validatedBy', 'updatedAt']) && incoming().updatedAt == request.time)
+      );
+    }
+
+    // 6. Transaction Rules
+    match /transactions/{transactionId} {
+      allow read: if isOwner(resource.data.userId) || hasRole('admin');
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && 
+                    incoming().status == 'pending' && incoming().createdAt == request.time;
+    }
+
+    // 7. Physical Ticket Inventory
+    match /physicalTickets/{ticketId} {
+      allow read: if (hasRole('admin') || hasRole('agent')) && isValidId(ticketId);
+      allow write: if (hasRole('admin') || hasRole('agent')) && isValidId(ticketId);
+      allow list: if (hasRole('admin') || hasRole('agent'));
+    }
+
+    match /ticketBatches/{batchId} {
+      allow read: if (hasRole('admin') || hasRole('agent')) && isValidId(batchId);
+      allow write: if (hasRole('admin') || hasRole('agent')) && isValidId(batchId);
+    }
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a passenger or staff member.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Full name of the user" },
+        "phone": { "type": "string", "description": "Phone number (main ID)" },
+        "role": { "type": "string", "enum": ["passenger", "agent", "admin"], "description": "User role" },
+        "matricule": { "type": "string", "description": "Staff ID for agents" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "phone", "role", "createdAt"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "A transport company.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "logo": { "type": "string" },
+        "contact": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "Bus": {
+      "title": "Bus",
+      "description": "A vehicle in a company's fleet.",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "plate": { "type": "string" },
+        "capacity": { "type": "integer" },
+        "comfort": { "type": "string", "enum": ["clim", "ventile"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "plate", "capacity", "comfort", "createdAt"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "A scheduled departure.",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "busId": { "type": "string" },
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "departureTime": { "type": "string", "format": "date-time" },
+        "price": { "type": "number" },
+        "status": { "type": "string", "enum": ["scheduled", "on_route", "completed", "cancelled"] },
+        "availableSeats": { "type": "integer" },
+        "reservedSeats": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["companyId", "busId", "from", "to", "departureTime", "price", "status", "availableSeats"]
+    },
+    "Ticket": {
+      "title": "Ticket",
+      "description": "A booking for a trip.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "tripId": { "type": "string" },
+        "companyId": { "type": "string" },
+        "seatNumber": { "type": "string" },
+        "passengerName": { "type": "string" },
+        "passengerPhone": { "type": "string" },
+        "qrCode": { "type": "string" },
+        "status": { "type": "string", "enum": ["paid", "used", "cancelled"] },
+        "price": { "type": "number" },
+        "validatedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "tripId", "companyId", "seatNumber", "passengerName", "passengerPhone", "status", "price", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A mobile money transaction.",
+      "type": "object",
+      "properties": {
+        "ticketId": { "type": "string" },
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "provider": { "type": "string", "enum": ["orange", "moov"] },
+        "reference": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ticketId", "userId", "amount", "provider", "status", "createdAt"]
+    },
+    "PhysicalTicket": {
+      "title": "PhysicalTicket",
+      "description": "A physical ticket identifier.",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "serialNumber": { "type": "string" },
+        "batchId": { "type": "string" },
+        "status": { "type": "string", "enum": ["available", "reserved", "used"] },
+        "assignedTicketId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "serialNumber", "batchId", "status", "createdAt"]
+    },
+    "TicketBatch": {
+      "title": "TicketBatch",
+      "description": "A batch of imported tickets.",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "prefix": { "type": "string" },
+        "startNumber": { "type": "integer" },
+        "endNumber": { "type": "integer" },
+        "count": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "prefix", "startNumber", "endNumber", "count", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User profile" },
+    "/companies/{companyId}": { "schema": "Company", "description": "Transport company" },
+    "/buses/{busId}": { "schema": "Bus", "description": "Vehicle details" },
+    "/trips/{tripId}": { "schema": "Trip", "description": "Scheduled trip" },
+    "/tickets/{ticketId}": { "schema": "Ticket", "description": "Passenger ticket" },
+    "/transactions/{transactionId}": { "schema": "Transaction", "description": "Payment record" },
+    "/physicalTickets/{ticketId}": { "schema": "PhysicalTicket", "description": "Serial number inventory" },
+    "/ticketBatches/{batchId}": { "schema": "TicketBatch", "description": "Imported ticket batches" }
+  }
+}

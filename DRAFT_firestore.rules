@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && getUserData().role == role;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. User Rules
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+               data.phone is string && data.phone.size() >= 8 && data.phone.size() <= 15 &&
+               data.role in ['passenger', 'agent', 'admin'] &&
+               (data.role != 'agent' || (data.matricule is string && data.matricule.size() > 0));
+      }
+
+      allow get: if isOwner(userId) || hasRole('admin');
+      allow create: if isOwner(userId) && isValidUser(incoming()) && incoming().role == 'passenger';
+      allow update: if isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().role == existing().role && 
+                    (!('matricule' in incoming()) || incoming().matricule == existing().matricule) &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone']);
+    }
+
+    // 2. Company Rules
+    match /companies/{companyId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin');
+    }
+
+    // 3. Bus Rules
+    match /buses/{busId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('admin') || hasRole('agent');
+    }
+
+    // 4. Trip Rules
+    match /trips/{tripId} {
+      function isValidTrip(data) {
+        return data.companyId is string && data.busId is string &&
+               data.from is string && data.to is string &&
+               data.price is number && data.price >= 0 &&
+               data.status in ['scheduled', 'on_route', 'completed', 'cancelled'] &&
+               data.availableSeats is int;
+      }
+
+      allow list: if isSignedIn();
+      allow get: if isSignedIn();
+      allow create: if (hasRole('admin') || hasRole('agent')) && isValidTrip(incoming());
+      allow update: if (hasRole('admin') || hasRole('agent')) && isValidTrip(incoming());
+    }
+
+    // 5. Ticket Rules
+    match /tickets/{ticketId} {
+      function isValidTicket(data) {
+        return data.userId == request.auth.uid &&
+               data.tripId is string &&
+               data.status in ['paid', 'used', 'cancelled'] &&
+               data.price is number && data.price >= 0;
+      }
+
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isOwner(resource.data.userId) || hasRole('agent') || hasRole('admin');
+      
+      allow create: if isSignedIn() && isValidTicket(incoming()) && 
+                    exists(/databases/$(database)/documents/trips/$(incoming().tripId));
+      
+      allow update: if (isOwner(resource.data.userId) || hasRole('agent')) && (
+        // Action: Cancel (Owner or Agent)
+        (incoming().status == 'cancelled' && incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+        // Action: Validate (Agent only)
+        (hasRole('agent') && incoming().status == 'used' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'validatedBy']))
+      );
+    }
+
+    // 6. Transaction Rules
+    match /transactions/{transactionId} {
+      allow read: if isOwner(resource.data.userId) || hasRole('admin');
+      // Transactions are ideally created via Admin SDK/Cloud Functions after MM webhook, 
+      // but for this demo we'll allow client create with strict validation.
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && 
+                    incoming().status == 'pending';
+    }
+  }
+}

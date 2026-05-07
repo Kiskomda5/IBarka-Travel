@@ -1,0 +1,8 @@
+{
+  "name": "IBarka Travel",
+  "description": "Plateforme moderne d'achat et de gestion de tickets de transport interurbain au Burkina Faso.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}
